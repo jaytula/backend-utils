@@ -1,16 +1,14 @@
 import jwt from 'jsonwebtoken';
 import cookie from 'cookie';
 
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN as string;
-const JWT_SAMESITE =
-  (process.env.JWT_SAMESITE as
-    | boolean
-    | 'strict'
-    | 'none'
-    | 'lax'
-    | undefined) || 'strict';
-const JWT_HTTPONLY = true;
-const JWT_SECURE = true;
+interface JwtConfig {
+  secretKey: string;
+  publicKey: string;
+  expiresIn?: string;
+  sameSite?: boolean | 'strict' | 'none' | 'lax' | undefined;
+  httpOnly?: boolean;
+  secure?: boolean;
+}
 
 type JwtPayload = {
   userId: string;
@@ -19,50 +17,64 @@ type JwtPayload = {
   exp: number;
 };
 
-export const JWT_PUBLIC_KEY = Buffer.from(
-  process.env.JWT_PUBLIC_KEY as string,
-  'base64'
-).toString('ascii');
+const JwtHelpers = ({
+  secretKey,
+  publicKey,
+  expiresIn = '300 sec',
+  sameSite = 'strict',
+  httpOnly = true,
+  secure = true,
+}: JwtConfig) => {
+  const JWT_SECRET_KEY = secretKey;
+  const JWT_PUBLIC_KEY = publicKey;
+  const createJwtPayload = (userId: string, email: string) => {
+    return jwt.sign({ userId, email }, JWT_SECRET_KEY, {
+      algorithm: 'RS256',
+      expiresIn: expiresIn || '300 sec',
+    });
+  };
+  const createJwtCookieFromPayload = (payload: string) => {
+    return cookie.serialize('jwt', payload, {
+      secure: true,
+      httpOnly: true,
+      path: '/',
+      sameSite,
+    });
+  };
 
-export const JWT_SECRET_KEY = Buffer.from(
-  process.env.JWT_SECRET_KEY as string,
-  'base64'
-).toString('ascii');
+  const decodeJwtPayload = (payload: string) =>
+    jwt.verify(payload, JWT_PUBLIC_KEY, {
+      algorithms: ['RS256'],
+    }) as JwtPayload;
 
-export const createJwtPayload = (userId: string, email: string) => {
-  return jwt.sign({ userId, email }, JWT_SECRET_KEY, {
-    algorithm: 'RS256',
-    expiresIn: JWT_EXPIRES_IN || '300 sec',
-  });
+  const createJwtCookie = (userId: string, email: string) => {
+    const payload = createJwtPayload(userId, email);
+    return createJwtCookieFromPayload(payload);
+  };
+
+  const clearCookie = () => {
+    const cookieParams = [
+      'jwt=deleted',
+      'path=/',
+      'expires=Thu, 01 Jan 1970 00:00:00 GMT',
+    ];
+
+    if (httpOnly) cookieParams.push('HttpOnly');
+    if (secure) cookieParams.push('Secure');
+    if (sameSite) cookieParams.push(`SameSite=${sameSite}`);
+
+    return cookieParams.join('; ');
+  };
+
+  return {
+    JWT_PUBLIC_KEY,
+    JWT_SECRET_KEY,
+    createJwtPayload,
+    createJwtCookieFromPayload,
+    decodeJwtPayload,
+    createJwtCookie,
+    clearCookie,
+  };
 };
 
-export const createJwtCookieFromPayload = (payload: string) => {
-  return cookie.serialize('jwt', payload, {
-    secure: true,
-    httpOnly: true,
-    path: '/',
-    sameSite: JWT_SAMESITE,
-  });
-};
-
-export const decodeJwtPayload = (payload: string) =>
-  jwt.verify(payload, JWT_PUBLIC_KEY, { algorithms: ['RS256'] }) as JwtPayload;
-
-export const createJwtCookie = (userId: string, email: string) => {
-  const payload = createJwtPayload(userId, email);
-  return createJwtCookieFromPayload(payload);
-};
-
-export const clearCookie = () => {
-  const cookieParams = [
-    'jwt=deleted',
-    'path=/',
-    'expires=Thu, 01 Jan 1970 00:00:00 GMT',
-  ];
-
-  if (JWT_HTTPONLY) cookieParams.push('HttpOnly');
-  if (JWT_SECURE) cookieParams.push('Secure');
-  if (JWT_SAMESITE) cookieParams.push(`SameSite=${JWT_SECURE}`);
-
-  return cookieParams.join('; ');
-};
+export default JwtHelpers;
